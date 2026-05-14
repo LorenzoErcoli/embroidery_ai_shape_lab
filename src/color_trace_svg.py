@@ -61,6 +61,32 @@ def quantize_lab(rgb: np.ndarray, mask: np.ndarray, colors: int) -> tuple[np.nda
     return full, centers_rgb, filtered
 
 
+def color_family_key(rgb: np.ndarray) -> str:
+    color = np.clip(np.rint(rgb), 0, 255).astype(np.uint8).reshape((1, 1, 3))
+    h, s, v = cv2.cvtColor(color, cv2.COLOR_RGB2HSV).reshape(3)
+    if v < 50:
+        return "neutral-dark"
+    if s < 30:
+        if v < 80:
+            return "neutral-dark"
+        if v > 185:
+            return "neutral-light"
+        return "neutral-mid"
+    if h < 10 or h >= 170:
+        return "red"
+    if h < 24:
+        return "orange"
+    if h < 38:
+        return "yellow"
+    if h < 88:
+        return "green"
+    if h < 125:
+        return "cyan"
+    if h < 150:
+        return "blue"
+    return "magenta"
+
+
 def contour_to_path(contour: np.ndarray, simplify: float, curve_strength: float) -> str | None:
     area = abs(cv2.contourArea(contour))
     if area < 1:
@@ -171,6 +197,19 @@ def run(args: argparse.Namespace) -> None:
     base_label = order[0]
     background = "#ffffff" if mask_mode.startswith("subject") else hex_color(centers_rgb[base_label])
 
+    region_masks: dict[int, np.ndarray] = {}
+    region_areas: dict[int, int] = {}
+    for label in order:
+        if label == base_label and not mask_mode.startswith("subject"):
+            continue
+        region = (labels == label) & work_mask
+        region = remove_small_components(region, args.min_region_area)
+        region = smooth_mask(region, args.close, args.open)
+        area = int(region.sum())
+        if area >= args.min_region_area:
+            region_masks[label] = region
+            region_areas[label] = area
+
     layers: list[dict] = []
     if args.base_mode == "subject":
         base_paths = mask_to_curve_paths(work_mask, args.min_base_area, args.base_simplify, args.curve_strength)
@@ -184,16 +223,12 @@ def run(args: argparse.Namespace) -> None:
                 "paths": base_paths,
             }
         )
-    else:
+    elif args.base_mode == "partition":
         for label in order:
-            if label == base_label and not mask_mode.startswith("subject"):
+            if label not in region_masks:
                 continue
-            region = (labels == label) & work_mask
-            region = remove_small_components(region, args.min_region_area)
-            region = smooth_mask(region, args.close, args.open)
-            area = int(region.sum())
-            if area < args.min_region_area:
-                continue
+            region = region_masks[label]
+            area = region_areas[label]
             paths = mask_to_curve_paths(region, args.min_region_area, args.base_simplify, args.curve_strength)
             if not paths:
                 continue
@@ -204,6 +239,63 @@ def run(args: argparse.Namespace) -> None:
                     "label": label,
                     "color": hex_color(centers_rgb[label]),
                     "area": area,
+                    "paths": paths,
+                }
+            )
+    else:
+        families: dict[str, list[int]] = {}
+        for label in order:
+            if label not in region_masks:
+                continue
+            families.setdefault(color_family_key(centers_rgb[label]), []).append(label)
+
+        chromatic_families = {family for family in families if not family.startswith("neutral-")}
+        base_family_names = chromatic_families or set(families)
+        dominant_labels: set[int] = set()
+        for family, family_labels in sorted(
+            families.items(),
+            key=lambda item: sum(region_areas[label] for label in item[1]),
+            reverse=True,
+        ):
+            if family not in base_family_names:
+                continue
+            base_mask = np.zeros(work_mask.shape, dtype=bool)
+            for label in family_labels:
+                base_mask |= region_masks[label]
+            area = int(base_mask.sum())
+            if area < args.min_base_area:
+                continue
+            dominant = max(family_labels, key=lambda label: region_areas[label])
+            dominant_labels.add(dominant)
+            paths = mask_to_curve_paths(base_mask, args.min_base_area, args.base_simplify, args.curve_strength)
+            if not paths:
+                continue
+            layers.append(
+                {
+                    "id": f"base-family-{family}",
+                    "role": "base",
+                    "label": dominant,
+                    "family": family,
+                    "color": hex_color(centers_rgb[dominant]),
+                    "area": area,
+                    "paths": paths,
+                }
+            )
+
+        for label in order:
+            if label not in region_masks or label in dominant_labels:
+                continue
+            paths = mask_to_curve_paths(region_masks[label], args.min_region_area, args.simplify, args.curve_strength)
+            if not paths:
+                continue
+            layers.append(
+                {
+                    "id": f"color-{label}",
+                    "role": "overlay",
+                    "label": label,
+                    "family": color_family_key(centers_rgb[label]),
+                    "color": hex_color(centers_rgb[label]),
+                    "area": region_areas[label],
                     "paths": paths,
                 }
             )
@@ -239,8 +331,9 @@ def run(args: argparse.Namespace) -> None:
     preview = np.full(rgb.shape, 255, dtype=np.uint8)
     if not mask_mode.startswith("subject"):
         preview[:] = np.clip(centers_rgb[base_label], 0, 255).astype(np.uint8)
-    for layer in layers:
-        label = int(layer["label"])
+    for label in order:
+        if label == base_label and not mask_mode.startswith("subject"):
+            continue
         preview[(labels == label) & work_mask] = np.clip(centers_rgb[label], 0, 255).astype(np.uint8)
     Image.fromarray(preview, mode="RGB").save(out_dir / "color_trace_preview.png")
 
@@ -264,6 +357,7 @@ def run(args: argparse.Namespace) -> None:
                 "id": layer["id"],
                 "role": layer["role"],
                 "color": layer["color"],
+                "family": layer.get("family"),
                 "area": layer["area"],
                 "path_count": len(layer["paths"]),
             }
@@ -279,7 +373,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("image")
     parser.add_argument("--output", default="output")
     parser.add_argument("--colors", type=int, default=10)
-    parser.add_argument("--base-mode", choices=["partition", "subject"], default="partition")
+    parser.add_argument("--base-mode", choices=["family", "partition", "subject"], default="family")
     parser.add_argument("--mode", choices=["auto", "subject", "full"], default="auto")
     parser.add_argument("--bg-tolerance", type=float, default=35.0)
     parser.add_argument("--min-region-area", type=int, default=45)
