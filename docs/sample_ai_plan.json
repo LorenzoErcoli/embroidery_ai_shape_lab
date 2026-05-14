@@ -1,0 +1,60 @@
+{
+  "subject_type": "pallone stilizzato",
+  "background_handling": "Ignorare lo sfondo esterno uniforme.",
+  "composition_strategy": "Usare una sagoma base unica e sovrapporre campiture colorate grandi e linee scure.",
+  "layers": [
+    {
+      "name": "base pallone",
+      "role": "base",
+      "color_hex": "#eeeee4",
+      "priority": 1,
+      "embroidery_use": "riempimento base",
+      "shape_description": "Sagoma circolare completa del pallone.",
+      "include": true
+    },
+    {
+      "name": "grafica rossa",
+      "role": "overlay",
+      "color_hex": "#e13730",
+      "priority": 2,
+      "embroidery_use": "riempimento sopra base",
+      "shape_description": "Campiture rosse curve sul pallone.",
+      "include": true
+    },
+    {
+      "name": "grafica blu",
+      "role": "overlay",
+      "color_hex": "#2876d2",
+      "priority": 3,
+      "embroidery_use": "riempimento sopra base",
+      "shape_description": "Campiture blu curve sul pallone.",
+      "include": true
+    },
+    {
+      "name": "grafica gialla",
+      "role": "overlay",
+      "color_hex": "#f5be2d",
+      "priority": 4,
+      "embroidery_use": "riempimento sopra base",
+      "shape_description": "Campiture gialle curve sul pallone.",
+      "include": true
+    },
+    {
+      "name": "linee scure",
+      "role": "outline",
+      "color_hex": "#191919",
+      "priority": 5,
+      "embroidery_use": "bordo o satin stitch",
+      "shape_description": "Linee scure interne e contorno.",
+      "include": true
+    }
+  ],
+  "discard_rules": [
+    "Ignorare ombre morbide e rumore colore.",
+    "Scartare frammenti troppo piccoli."
+  ],
+  "risks": [
+    "Le linee sottili potrebbero richiedere conversione specifica a punto satin."
+  ]
+}
+

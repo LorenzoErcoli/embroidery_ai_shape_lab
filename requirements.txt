@@ -1,0 +1,6 @@
+Pillow>=10.0
+numpy>=1.24
+opencv-python-headless>=4.13
+torch>=2.12
+torchvision>=0.27
+segment-anything>=1.0
