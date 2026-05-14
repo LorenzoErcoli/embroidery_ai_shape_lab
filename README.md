@@ -72,6 +72,21 @@ Output:
 
 Questo ramo non sostituisce `composition_ai.svg`: serve a ottenere un tracciato colore piu' simile ai software di vector tracing classici. La direzione piu' promettente e' usarlo insieme alla lettura AI, dove il tracing costruisce bordi e campiture e l'AI controlla soggetti, sfondo, livelli e perdita di dettagli.
 
+### AI Layered Trace
+
+Percorso sperimentale che usa `entity_ai_plan.json` per trasformare il trace colore in livelli piu' logici:
+
+```powershell
+.\run_ai_layered_trace.bat input\fragola.webp
+```
+
+Output:
+
+- `output/<nome_immagine>/composition_ai_layered_trace.svg`: SVG con basi e overlay guidati dalle entita' AI;
+- `output/<nome_immagine>/ai_layered_trace_report.json`: report dei livelli prodotti.
+
+Questo ramo prova a risolvere casi come fragola rossa + foglie verdi o pallone + ombra: le parti base individuate dall'AI vengono trattate come campiture separate invece di stare sempre sopra una base unica. Le entita' AI con ruolo `exclude` vengono usate per evitare sfondo, ombre esterne e micro-dettagli non ricamabili.
+
 ### SVG Semantico AI
 
 Percorso sperimentale in cui l'AI genera anche i poligoni dei livelli, invece di usare solo il colore dei pixel:
