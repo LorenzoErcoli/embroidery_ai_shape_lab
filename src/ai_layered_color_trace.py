@@ -43,6 +43,19 @@ def color_distance_mask(rgb: np.ndarray, target_rgb: np.ndarray, tolerance: floa
     return np.linalg.norm(delta, axis=2) <= tolerance
 
 
+def color_family_mask(rgb: np.ndarray, target_rgb: np.ndarray, tolerance: float) -> np.ndarray:
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV).astype(np.float32)
+    target = cv2.cvtColor(target_rgb.reshape((1, 1, 3)), cv2.COLOR_RGB2HSV).reshape(3).astype(np.float32)
+    hue_delta = np.abs(hsv[:, :, 0] - target[0])
+    hue_delta = np.minimum(hue_delta, 180 - hue_delta)
+    sat_delta = np.abs(hsv[:, :, 1] - target[1])
+    val_delta = np.abs(hsv[:, :, 2] - target[2])
+    hue_limit = max(10.0, tolerance * 0.32)
+    sat_limit = max(55.0, tolerance * 1.15)
+    val_limit = max(95.0, tolerance * 1.8)
+    return (hue_delta <= hue_limit) & (sat_delta <= sat_limit) & (val_delta <= val_limit)
+
+
 def entity_sort_key(entity: dict) -> tuple[int, int]:
     role_rank = {"base": 0, "overlay": 1, "detail": 2, "outline": 3}
     return int(entity.get("priority", 100)), role_rank.get(str(entity.get("role", "overlay")), 1)
@@ -85,7 +98,10 @@ def build_entity_masks(args: argparse.Namespace, rgb: np.ndarray, plan: dict) ->
             mask = color_distance_mask(rgb, target, args.exclude_tolerance) & box
         else:
             target = parse_hex(str(entity.get("color_hex", "#000000")))
-            mask = color_distance_mask(rgb, target, args.color_tolerance) & box
+            if role == "base":
+                mask = color_family_mask(rgb, target, args.base_color_tolerance) & box
+            else:
+                mask = color_distance_mask(rgb, target, args.color_tolerance) & box
 
         entity_type = str(entity.get("entity_type", "")).lower()
         if role == "exclude" and entity_type == "shadow":
@@ -232,6 +248,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-size", type=int, default=1100)
     parser.add_argument("--bg-tolerance", type=float, default=35.0)
     parser.add_argument("--color-tolerance", type=float, default=34.0)
+    parser.add_argument("--base-color-tolerance", type=float, default=78.0)
     parser.add_argument("--exclude-tolerance", type=float, default=28.0)
     parser.add_argument("--min-component-area", type=int, default=24)
     parser.add_argument("--ai-min-area-weight", type=float, default=0.12)
