@@ -97,15 +97,44 @@ def contour_to_path(contour: np.ndarray, simplify: float, curve_strength: float)
 
 def mask_to_curve_paths(mask: np.ndarray, min_area: int, simplify: float, curve_strength: float) -> list[dict]:
     bitmap = (mask.astype(np.uint8) * 255)
-    contours, _ = cv2.findContours(bitmap, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contours, hierarchy = cv2.findContours(bitmap, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    if hierarchy is None:
+        return []
+    relations = hierarchy[0]
+
+    children: dict[int, list[int]] = {}
+    roots: list[int] = []
+    for index, relation in enumerate(relations):
+        parent = int(relation[3])
+        if parent == -1:
+            roots.append(index)
+        else:
+            children.setdefault(parent, []).append(index)
+
+    def descendants(index: int) -> list[int]:
+        result: list[int] = []
+        stack = list(children.get(index, []))
+        while stack:
+            child = stack.pop()
+            result.append(child)
+            stack.extend(children.get(child, []))
+        return result
+
     paths: list[dict] = []
-    for contour in sorted(contours, key=cv2.contourArea, reverse=True):
+    for index in sorted(roots, key=lambda item: cv2.contourArea(contours[item]), reverse=True):
+        contour = contours[index]
         area = float(abs(cv2.contourArea(contour)))
         if area < min_area:
             continue
-        d = contour_to_path(contour, simplify, curve_strength)
-        if d:
-            paths.append({"d": d, "area": area, "points": int(len(contour))})
+        parts: list[str] = []
+        point_count = 0
+        for contour_index in [index] + descendants(index):
+            part = contour_to_path(contours[contour_index], simplify, curve_strength)
+            if part:
+                parts.append(part)
+                point_count += int(len(contours[contour_index]))
+        if parts:
+            paths.append({"d": " ".join(parts), "area": area, "points": point_count})
     return paths
 
 
@@ -120,7 +149,7 @@ def write_svg(path: Path, width: int, height: int, layers: list[dict], backgroun
             f'fill="{layer["color"]}" stroke="none">'
         )
         for path_item in layer["paths"]:
-            lines.append(f'    <path d="{path_item["d"]}"/>')
+            lines.append(f'    <path d="{path_item["d"]}" fill-rule="evenodd"/>')
         lines.append("  </g>")
     lines.append("</svg>")
     path.write_text("\n".join(lines), encoding="utf-8")
