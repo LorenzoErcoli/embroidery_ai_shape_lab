@@ -172,42 +172,67 @@ def run(args: argparse.Namespace) -> None:
     background = "#ffffff" if mask_mode.startswith("subject") else hex_color(centers_rgb[base_label])
 
     layers: list[dict] = []
-    base_paths = mask_to_curve_paths(work_mask, args.min_base_area, args.base_simplify, args.curve_strength)
-    layers.append(
-        {
-            "id": "base-subject" if mask_mode.startswith("subject") else f"base-color-{base_label}",
-            "role": "base",
-            "label": base_label,
-            "color": hex_color(centers_rgb[base_label]),
-            "area": int(work_mask.sum()),
-            "paths": base_paths,
-        }
-    )
-
-    for label in order:
-        if label == base_label and mask_mode.startswith("subject"):
-            continue
-        region = (labels == label) & work_mask
-        if label == base_label and not mask_mode.startswith("subject"):
-            continue
-        region = remove_small_components(region, args.min_region_area)
-        region = smooth_mask(region, args.close, args.open)
-        area = int(region.sum())
-        if area < args.min_region_area:
-            continue
-        paths = mask_to_curve_paths(region, args.min_region_area, args.simplify, args.curve_strength)
-        if not paths:
-            continue
+    if args.base_mode == "subject":
+        base_paths = mask_to_curve_paths(work_mask, args.min_base_area, args.base_simplify, args.curve_strength)
         layers.append(
             {
-                "id": f"color-{label}",
-                "role": "overlay",
-                "label": label,
-                "color": hex_color(centers_rgb[label]),
-                "area": area,
-                "paths": paths,
+                "id": "base-subject" if mask_mode.startswith("subject") else f"base-color-{base_label}",
+                "role": "base",
+                "label": base_label,
+                "color": hex_color(centers_rgb[base_label]),
+                "area": int(work_mask.sum()),
+                "paths": base_paths,
             }
         )
+    else:
+        for label in order:
+            if label == base_label and not mask_mode.startswith("subject"):
+                continue
+            region = (labels == label) & work_mask
+            region = remove_small_components(region, args.min_region_area)
+            region = smooth_mask(region, args.close, args.open)
+            area = int(region.sum())
+            if area < args.min_region_area:
+                continue
+            paths = mask_to_curve_paths(region, args.min_region_area, args.base_simplify, args.curve_strength)
+            if not paths:
+                continue
+            layers.append(
+                {
+                    "id": f"base-color-{label}",
+                    "role": "base",
+                    "label": label,
+                    "color": hex_color(centers_rgb[label]),
+                    "area": area,
+                    "paths": paths,
+                }
+            )
+
+    if args.base_mode == "subject":
+        for label in order:
+            if label == base_label and mask_mode.startswith("subject"):
+                continue
+            region = (labels == label) & work_mask
+            if label == base_label and not mask_mode.startswith("subject"):
+                continue
+            region = remove_small_components(region, args.min_region_area)
+            region = smooth_mask(region, args.close, args.open)
+            area = int(region.sum())
+            if area < args.min_region_area:
+                continue
+            paths = mask_to_curve_paths(region, args.min_region_area, args.simplify, args.curve_strength)
+            if not paths:
+                continue
+            layers.append(
+                {
+                    "id": f"color-{label}",
+                    "role": "overlay",
+                    "label": label,
+                    "color": hex_color(centers_rgb[label]),
+                    "area": area,
+                    "paths": paths,
+                }
+            )
 
     write_svg(out_dir / "composition_color_trace.svg", image.width, image.height, layers, background)
 
@@ -232,6 +257,7 @@ def run(args: argparse.Namespace) -> None:
             "curve_strength": args.curve_strength,
             "close": args.close,
             "open": args.open,
+            "base_mode": args.base_mode,
         },
         "layers": [
             {
@@ -253,6 +279,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("image")
     parser.add_argument("--output", default="output")
     parser.add_argument("--colors", type=int, default=10)
+    parser.add_argument("--base-mode", choices=["partition", "subject"], default="partition")
     parser.add_argument("--mode", choices=["auto", "subject", "full"], default="auto")
     parser.add_argument("--bg-tolerance", type=float, default=35.0)
     parser.add_argument("--min-region-area", type=int, default=45)
