@@ -77,6 +77,8 @@ def color_family_key(rgb: np.ndarray) -> str:
     if h < 24:
         return "orange"
     if h < 38:
+        if s > 45 and v < 210:
+            return "green"
         return "yellow"
     if h < 88:
         return "green"
@@ -121,7 +123,13 @@ def contour_to_path(contour: np.ndarray, simplify: float, curve_strength: float)
     return " ".join(commands)
 
 
-def mask_to_curve_paths(mask: np.ndarray, min_area: int, simplify: float, curve_strength: float) -> list[dict]:
+def mask_to_curve_paths(
+    mask: np.ndarray,
+    min_area: int,
+    simplify: float,
+    curve_strength: float,
+    include_holes: bool = True,
+) -> list[dict]:
     bitmap = (mask.astype(np.uint8) * 255)
     contours, hierarchy = cv2.findContours(bitmap, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
     if hierarchy is None:
@@ -154,7 +162,8 @@ def mask_to_curve_paths(mask: np.ndarray, min_area: int, simplify: float, curve_
             continue
         parts: list[str] = []
         point_count = 0
-        for contour_index in [index] + descendants(index):
+        contour_indexes = [index] + (descendants(index) if include_holes else [])
+        for contour_index in contour_indexes:
             part = contour_to_path(contours[contour_index], simplify, curve_strength)
             if part:
                 parts.append(part)
@@ -211,7 +220,22 @@ def run(args: argparse.Namespace) -> None:
             region_areas[label] = area
 
     layers: list[dict] = []
-    if args.base_mode == "subject":
+    if args.add_foundation:
+        base_paths = mask_to_curve_paths(work_mask, args.min_base_area, args.base_simplify, args.curve_strength, include_holes=False)
+        if base_paths:
+            layers.append(
+                {
+                    "id": "foundation-subject",
+                    "role": "foundation",
+                    "label": base_label,
+                    "family": "subject",
+                    "color": hex_color(centers_rgb[base_label]),
+                    "area": int(work_mask.sum()),
+                    "paths": base_paths,
+                }
+            )
+
+    if args.base_mode == "subject" and not args.add_foundation:
         base_paths = mask_to_curve_paths(work_mask, args.min_base_area, args.base_simplify, args.curve_strength)
         layers.append(
             {
@@ -229,7 +253,7 @@ def run(args: argparse.Namespace) -> None:
                 continue
             region = region_masks[label]
             area = region_areas[label]
-            paths = mask_to_curve_paths(region, args.min_region_area, args.base_simplify, args.curve_strength)
+            paths = mask_to_curve_paths(region, args.min_region_area, args.base_simplify, args.curve_strength, include_holes=False)
             if not paths:
                 continue
             layers.append(
@@ -267,7 +291,7 @@ def run(args: argparse.Namespace) -> None:
                 continue
             dominant = max(family_labels, key=lambda label: region_areas[label])
             dominant_labels.add(dominant)
-            paths = mask_to_curve_paths(base_mask, args.min_base_area, args.base_simplify, args.curve_strength)
+            paths = mask_to_curve_paths(base_mask, args.min_base_area, args.base_simplify, args.curve_strength, include_holes=False)
             if not paths:
                 continue
             layers.append(
@@ -374,6 +398,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="output")
     parser.add_argument("--colors", type=int, default=10)
     parser.add_argument("--base-mode", choices=["family", "partition", "subject"], default="family")
+    parser.add_argument("--add-foundation", action="store_true", default=False)
+    parser.add_argument("--no-foundation", dest="add_foundation", action="store_false")
     parser.add_argument("--mode", choices=["auto", "subject", "full"], default="auto")
     parser.add_argument("--bg-tolerance", type=float, default=35.0)
     parser.add_argument("--min-region-area", type=int, default=45)
